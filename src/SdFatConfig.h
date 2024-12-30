@@ -473,6 +473,7 @@ typedef uint8_t SdCsPin_t;
     defined(ESP8266) || defined(ESP32) || defined(PLATFORM_ID) ||            \
     defined(ARDUINO_SAM_DUE) || defined(STM32_CORE_VERSION) ||               \
     defined(__STM32F1__) || defined(__STM32F4__) ||                          \
+    defined(ARDUINO_ARCH_ZEPHYR) ||                                          \
     (defined(CORE_TEENSY) && defined(__arm__))
 #define SD_HAS_CUSTOM_SPI 1
 #else  // SD_HAS_CUSTOM_SPI

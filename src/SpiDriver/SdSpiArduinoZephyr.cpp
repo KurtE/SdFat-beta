@@ -23,21 +23,22 @@
  * DEALINGS IN THE SOFTWARE.
  */
 #include "SdSpiDriver.h"
-#if defined(SD_USE_CUSTOM_SPI) && defined(__arm__) && defined(CORE_TEENSY)
+#if defined(SD_USE_CUSTOM_SPI) && defined(ARDUINO_ARCH_ZEPHYR)
 #define USE_BLOCK_TRANSFER 1
+
+class wrapped_SPI : public arduino::ZephyrSPI {
+  public:
+    inline const struct device *SPIDevice() {return spi_dev;}
+    inline struct spi_config *getConfig()  {return &config;}
+    inline struct spi_config *getConfig16() {return &config16;}
+};
+
 //------------------------------------------------------------------------------
 void SdSpiArduinoDriver::activate() { m_spi->beginTransaction(m_spiSettings); }
 //------------------------------------------------------------------------------
 void SdSpiArduinoDriver::begin(SdSpiConfig spiConfig) {
   if (spiConfig.spiPort) {
     m_spi = spiConfig.spiPort;
-#if defined(SDCARD_SPI) && defined(SDCARD_SS_PIN)
-  } else if (spiConfig.csPin == SDCARD_SS_PIN) {
-    m_spi = &SDCARD_SPI;
-    m_spi->setMISO(SDCARD_MISO_PIN);
-    m_spi->setMOSI(SDCARD_MOSI_PIN);
-    m_spi->setSCK(SDCARD_SCK_PIN);
-#endif  // defined(SDCARD_SPI) && defined(SDCARD_SS_PIN)
   } else {
     m_spi = &SPI;
   }
@@ -52,8 +53,16 @@ uint8_t SdSpiArduinoDriver::receive() { return m_spi->transfer(0XFF); }
 //------------------------------------------------------------------------------
 uint8_t SdSpiArduinoDriver::receive(uint8_t* buf, size_t count) {
 #if USE_BLOCK_TRANSFER
-  m_spi->setTransferWriteFill(0xff);
-  m_spi->transfer(nullptr, buf, count);
+  #if 1
+    wrapped_SPI *pspi = (wrapped_SPI *)m_spi;
+    struct spi_buf sbuf = {.buf = (void*)buf, .len=count};
+    struct spi_buf_set buf_set = { .buffers = &sbuf, .count = 1 };
+
+    spi_transceive(pspi->SPIDevice(), pspi->getConfig(), nullptr, &buf_set);
+  #else  
+  memset(buf, 0XFF, count);
+  m_spi->transfer(buf, count);
+  #endif
 #else   // USE_BLOCK_TRANSFER
   for (size_t i = 0; i < count; i++) {
     buf[i] = m_spi->transfer(0XFF);
@@ -66,7 +75,21 @@ void SdSpiArduinoDriver::send(uint8_t data) { m_spi->transfer(data); }
 //------------------------------------------------------------------------------
 void SdSpiArduinoDriver::send(const uint8_t* buf, size_t count) {
 #if USE_BLOCK_TRANSFER
-  m_spi->transfer(buf, nullptr, count);
+#if 1
+    wrapped_SPI *pspi = (wrapped_SPI *)m_spi;
+    struct spi_buf sbuf = {.buf = (void*)buf, .len=count};
+    struct spi_buf_set buf_set = { .buffers = &sbuf, .count = 1 };
+
+    spi_transceive(pspi->SPIDevice(), pspi->getConfig(), &buf_set, nullptr);
+
+#else
+  uint32_t tmp[128];
+  if (0 < count && count <= 512) {
+    memcpy(tmp, buf, count);
+    m_spi->transfer(tmp, count);
+    return;
+  }
+#endif  
 #endif  // USE_BLOCK_TRANSFER
   for (size_t i = 0; i < count; i++) {
     m_spi->transfer(buf[i]);
